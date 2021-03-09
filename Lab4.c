@@ -87,14 +87,14 @@ int main()
 	pthread_create(&thread0_EventThread, NULL, EventThread, NULL);
 	pthread_join(thread0_EventThread, NULL);
 
-	char str1[80];
+	char str1[1];
 	
 	while(1)
 	{
 		int fd = open(namedPipe1, O_RDWR);
 
-		read(fd, str1, 20);
-		printf("GPS reads: %s\n", str1);
+		read(fd, str1, 1);
+		printf("GPS reads: %d\n", str1);
 		close(fd);
 		
 		delay(250);

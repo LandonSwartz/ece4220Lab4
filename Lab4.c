@@ -53,12 +53,22 @@ int main() {
 #include<sys/stat.h>
 #include<fcntl.h>
 
+#define MY_PRIORITY 51
+#define BUTTON_PIN
+
 sem_t sema; //semaphore for whatever
 
 void *EventThread();
+void *printThread(); //thread for printing to screen
+void * interpolate(void *args); //functions that interpolate the given gps data
 
 int main()
 {
+	//setting up wiring pi
+	wiringPiSetupGpio();
+	pinMode(BUTTON_PIN, INPUT);
+	pullUpDnControl(BUTTON, PUD_DOWN); //need to check
+	
 	char * namedPipe1 = "/tmp/N_pipe1";
 	char * namedPipe2 = "/tmp/N_pipe2";
 	
@@ -87,7 +97,7 @@ int main()
 	pthread_create(&thread0_EventThread, NULL, EventThread, NULL);
 	pthread_join(thread0_EventThread, NULL);
 
-	char str1[1];
+	unsigned char str1[1];
 	
 	while(1)
 	{
@@ -97,7 +107,7 @@ int main()
 		printf("GPS reads: %d\n", str1);
 		close(fd);
 		
-		delay(250);
+		usleep(250*1000); //250 milliseconds
 	}
 	
 	pthread_exit(NULL);

@@ -52,25 +52,128 @@ int main() {
 #include<sys/types.h>
 #include<sys/stat.h>
 #include<fcntl.h>
-
-#define MY_PRIORITY 51
-#define BUTTON_PIN
+#include<sys/time.h>
 
 sem_t sema; //semaphore for whatever
+//struct timeval stamp_time;
+struct timeval GPS; //struct for time of gps
 
-void *EventThread();
-void *printThread(); //thread for printing to screen
-void * interpolate(void *args); //functions that interpolate the given gps data
+/*struct GPS_DATA
+{
+	struct timeval X1;
+	struct timeval X2;
+	struct timeval X_before_btn_press;
+	int Y1;
+	int Y2;
+	int slope;
+	int Y_before_btn_press; 
+};*/
+
+char buffer[2]; //buffer for reading from fd
+
+//thread for receiving real time event
+//Will dynamically make child threads for button presses
+int timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *y)
+{
+  struct timeval xx = *x;
+  struct timeval yy = *y;
+  x = &xx; y = &yy;
+
+  if (x->tv_usec > 999999)
+  {
+    x->tv_sec += x->tv_usec / 1000000;
+    x->tv_usec %= 1000000;
+  }
+
+  if (y->tv_usec > 999999)
+  {
+    y->tv_sec += y->tv_usec / 1000000;
+    y->tv_usec %= 1000000;
+  }
+
+  result->tv_sec = x->tv_sec - y->tv_sec;
+
+  if ((result->tv_usec = x->tv_usec - y->tv_usec) < 0)
+  {
+    result->tv_usec += 1000000;
+    result->tv_sec--; // borrow
+  }
+
+  return result->tv_sec < 0;
+}
+
+void *Pthread0()
+{
+	int fd;
+	char * namedPipe2 = "/tmp/N_pipe2";
+	fd = open(namedPipe2, O_RDONLY); //reading second named pipe to recieve real time event
+	
+	//struct GPS_DATA data;
+	int bytes2; //number of bytes read in from pipeline 2
+	
+	struct timeval X_before_btn_press;
+	struct timeval X1;
+	struct timeval X2;
+	int Y1;
+	int Y2;
+	int slope; 
+	int Y_before_btn_press;
+	
+	close(fd);
+	
+	while(1)
+	{
+		bytes2 = read(fd, &X_before_btn_press, sizeof(int));
+		
+		Y1 = buffer[0];
+		X1 = GPS; //<-^ from main thread 
+		
+		while(Y1 == buffer[0])
+		{
+			//waiting for buffer to update next data point before moving on
+		} 
+		
+		Y2 = buffer[0];
+		X2 = GPS; //<-^ from main thread 
+		
+		//finding slope
+		int x_result = timeval_subtract(&x_result, &X1, &X2);
+		
+		slope = (Y2 - Y1) / x_result;
+		
+		int x_result2 = timeval_subtract(&x_result2, &X_before_btn_press, &X1);
+		
+		//finding Y_before_btn_press
+		Y_before_btn_press = ((slope * x_result2) + Y1);
+		
+		printf("y1 is: %d\n", Y1);
+		printf("y2 is: %d\n", Y2);
+		printf("x1 is: %d\n", X1);
+		printf("x2 is: %d\n", X2);
+		printf("X coordinate of button press is %d", X_before_btn_press);
+		printf("Y coordinate of button press is %d", Y_before_btn_press);
+	}
+
+}
+
+
+
+
+//thread for interpolating the data from Pthread0
+/*void * childThread(void *args)
+{
+
+}*/
+
 
 int main()
 {
-	//setting up wiring pi
-	wiringPiSetupGpio();
-	pinMode(BUTTON_PIN, INPUT);
-	pullUpDnControl(BUTTON, PUD_DOWN); //need to check
-	
 	char * namedPipe1 = "/tmp/N_pipe1";
 	char * namedPipe2 = "/tmp/N_pipe2";
+
+	
+	//struct timeval GPS; //struct for time of gps
+	int bytes; //temp value for reading in
 	
 	pthread_t thread0_EventThread;
 	
@@ -92,32 +195,40 @@ int main()
 		printf("N-pipe-2 has already been created...\n");
 	}
 	
-	int pfd = open(namedPipe1, O_RDWR);
-	
-	pthread_create(&thread0_EventThread, NULL, EventThread, NULL);
-	pthread_join(thread0_EventThread, NULL);
+	pthread_create(&thread0_EventThread, NULL, Pthread0, NULL);
 
-	unsigned char str1[1];
-	
+
+	//setting GPS struct
+	gettimeofday(&GPS, NULL);
+	//getting gps signal
 	while(1)
 	{
 		int fd = open(namedPipe1, O_RDWR);
-
-		read(fd, str1, 1);
-		printf("GPS reads: %d\n", str1);
-		close(fd);
 		
-		usleep(250*1000); //250 milliseconds
-	}
+		if(read(fd, &buffer, sizeof(unsigned char)) < 0) //error because recieving zeros I believe
+		{
+			printf("Can't read n_pipe1...\n");
+		}
+		//reading from pipeline
+		
+		bytes = read(fd, &buffer, sizeof(char)); //reading into buffer and setting to str1
+		gettimeofday(&GPS, NULL);
+		printf("Number of bytes read: %d\n", bytes);
+		if(buffer[0] == NULL)
+			printf("No GPS signal being recieved\n");
+		else
+			printf("GPS signal: %c\n", buffer[0]);
+		//printf("Time of day is: %ld.%06ld\n", GPS.tv_sec, GPS.tv_usec); //from stackoverflow for writing nicely
+		close(fd);
+		delay(250); //waiting period of 250 ms	
+	}	
+	
+	pthread_join(thread0_EventThread, NULL);
 	
 	pthread_exit(NULL);
 }
 
-//thread for receiving real time event
-void *EventThread()
-{
-	
-}
+
 
 
 

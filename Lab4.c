@@ -57,51 +57,10 @@ int main() {
 sem_t sema; //semaphore for whatever
 //struct timeval stamp_time;
 struct timeval GPS; //struct for time of gps
-
-/*struct GPS_DATA
-{
-	struct timeval X1;
-	struct timeval X2;
-	struct timeval X_before_btn_press;
-	int Y1;
-	int Y2;
-	int slope;
-	int Y_before_btn_press; 
-};*/
-
 char buffer[2]; //buffer for reading from fd
 
 //thread for receiving real time event
 //Will dynamically make child threads for button presses
-int timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *y)
-{
-  struct timeval xx = *x;
-  struct timeval yy = *y;
-  x = &xx; y = &yy;
-
-  if (x->tv_usec > 999999)
-  {
-    x->tv_sec += x->tv_usec / 1000000;
-    x->tv_usec %= 1000000;
-  }
-
-  if (y->tv_usec > 999999)
-  {
-    y->tv_sec += y->tv_usec / 1000000;
-    y->tv_usec %= 1000000;
-  }
-
-  result->tv_sec = x->tv_sec - y->tv_sec;
-
-  if ((result->tv_usec = x->tv_usec - y->tv_usec) < 0)
-  {
-    result->tv_usec += 1000000;
-    result->tv_sec--; // borrow
-  }
-
-  return result->tv_sec < 0;
-}
-
 void *Pthread0()
 {
 	int fd;
@@ -112,14 +71,15 @@ void *Pthread0()
 	int bytes2; //number of bytes read in from pipeline 2
 	
 	struct timeval X_before_btn_press;
+	X_before_btn_press.tv_sec = 0;
+	X_before_btn_press.tv_usec = 0;
 	struct timeval X1;
 	struct timeval X2;
-	int Y1;
-	int Y2;
-	int slope; 
-	int Y_before_btn_press;
+	double Y1;
+	double Y2;
+	double Y_before_btn_press;
 	
-	close(fd);
+
 	
 	while(1)
 	{
@@ -137,23 +97,22 @@ void *Pthread0()
 		X2 = GPS; //<-^ from main thread 
 		
 		//finding slope
-		int x_result = timeval_subtract(&x_result, &X1, &X2);
+		//finding the milliseconds of the slope
+		int slope_milli = ((X2.tv_sec - X1.tv_sec) + ((int)X2.tv_usec - (int)X2.tv_usec)/1000000); 
 		
-		slope = (Y2 - Y1) / x_result;
-		
-		int x_result2 = timeval_subtract(&x_result2, &X_before_btn_press, &X1);
+		int X_before_btn_press_milli = ((X_before_btn_press.tv_sec - X1.tv_sec) + ((int)X2.tv_usec - (int)X2.tv_usec)/1000000);
 		
 		//finding Y_before_btn_press
-		Y_before_btn_press = ((slope * x_result2) + Y1);
+		Y_before_btn_press = (((Y2-Y1)*slope_milli) * (X_before_btn_press_milli)) + Y1;
 		
-		printf("y1 is: %d\n", Y1);
-		printf("y2 is: %d\n", Y2);
-		printf("x1 is: %d\n", X1);
-		printf("x2 is: %d\n", X2);
-		printf("X coordinate of button press is %d", X_before_btn_press);
-		printf("Y coordinate of button press is %d", Y_before_btn_press);
+		printf("y1 is: %lf\n", Y1);
+		printf("y2 is: %lf\n", Y2);
+		printf("x1 is: %d\n", X1.tv_sec);
+		printf("x2 is: %d\n", X2.tv_sec);
+		printf("X coordinate of button press is %d\n", X_before_btn_press.tv_sec);
+		printf("Y coordinate of button press is %lf\n", Y_before_btn_press);
 	}
-
+	close(fd);
 }
 
 
@@ -170,7 +129,7 @@ int main()
 {
 	char * namedPipe1 = "/tmp/N_pipe1";
 	char * namedPipe2 = "/tmp/N_pipe2";
-
+ 	int fd = open(namedPipe1, O_RDONLY);
 	
 	//struct timeval GPS; //struct for time of gps
 	int bytes; //temp value for reading in
@@ -203,15 +162,14 @@ int main()
 	//getting gps signal
 	while(1)
 	{
-		int fd = open(namedPipe1, O_RDWR);
-		
 		if(read(fd, &buffer, sizeof(unsigned char)) < 0) //error because recieving zeros I believe
 		{
 			printf("Can't read n_pipe1...\n");
 		}
 		//reading from pipeline
 		
-		bytes = read(fd, &buffer, sizeof(char)); //reading into buffer and setting to str1
+		bytes = read(fd, &buffer, sizeof(unsigned char)); //reading into buffer and setting to str1
+		buffer[1] = '\0'; //just in case
 		gettimeofday(&GPS, NULL);
 		printf("Number of bytes read: %d\n", bytes);
 		if(bytes == -1)
@@ -220,12 +178,12 @@ int main()
 			printf("GPS signal: %c\n", buffer[0]);
 
 		//printf("Time of day is: %ld.%06ld\n", GPS.tv_sec, GPS.tv_usec); //from stackoverflow for writing nicely
-		close(fd);
+
 		delay(250); //waiting period of 250 ms	
 	}	
 	
 	pthread_join(thread0_EventThread, NULL);
-	
+	close(fd);
 	pthread_exit(NULL);
 }
 

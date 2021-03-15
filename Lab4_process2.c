@@ -59,17 +59,19 @@ int main()
 		if(*gpeds == 0x00010000)
 		{	
 			gettimeofday(&time_of_btn, NULL);
+
+			printf("Button press happening\n");
 			
-			bytes = write(fd2, &time, sizeof(struct timeval));
+			bytes = write(fd2, &time_of_btn, sizeof(struct timeval));
 			
 			//clear the reg like lab three
 			*gpeds = 0xFFFFFFFF;
 
 		}
 		
+		printf("Waiting\n");
 		//waiting until next period
 		delay(60); //60 ms
 	}
 
 }
-

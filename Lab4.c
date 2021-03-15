@@ -214,10 +214,11 @@ int main()
 		bytes = read(fd, &buffer, sizeof(char)); //reading into buffer and setting to str1
 		gettimeofday(&GPS, NULL);
 		printf("Number of bytes read: %d\n", bytes);
-		if(buffer[0] == NULL)
+		if(bytes == -1)
 			printf("No GPS signal being recieved\n");
 		else
 			printf("GPS signal: %c\n", buffer[0]);
+
 		//printf("Time of day is: %ld.%06ld\n", GPS.tv_sec, GPS.tv_usec); //from stackoverflow for writing nicely
 		close(fd);
 		delay(250); //waiting period of 250 ms	

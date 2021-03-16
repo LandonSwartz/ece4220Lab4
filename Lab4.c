@@ -38,6 +38,16 @@ int main() {
 
 }*/
 
+/*Interpolation thread
+{
+	//wait until next GPS is available
+	//interpolate
+	sem_wait() for the pipe
+	print to screen through simple pipe
+	-- sem_post() is done in printing -- 
+}
+*/
+
 //helpful links
 //https://www.geeksforgeeks.org/named-pipe-fifo-example-c-program/
 
@@ -55,9 +65,21 @@ int main() {
 #include<sys/time.h>
 
 sem_t sema; //semaphore for whatever
-//struct timeval stamp_time;
 struct timeval GPS; //struct for time of gps
 char buffer[2]; //buffer for reading from fd
+
+//struct of shared memory for interpolation threads, don't know if works
+struct SharedMemory
+{
+	struct timeval X_before_btn_press;
+	//X_before_btn_press.tv_sec = 0;
+	//X_before_btn_press.tv_usec = 0;
+	struct timeval X1;
+	struct timeval X2;
+	double Y1; //don't know why it works with doubles
+	double Y2;
+	double Y_before_btn_press;
+};
 
 //thread for receiving real time event
 //Will dynamically make child threads for button presses
@@ -66,8 +88,7 @@ void *Pthread0()
 	int fd;
 	char * namedPipe2 = "/tmp/N_pipe2";
 	fd = open(namedPipe2, O_RDONLY); //reading second named pipe to recieve real time event
-	
-	//struct GPS_DATA data;
+
 	int bytes2; //number of bytes read in from pipeline 2
 	
 	struct timeval X_before_btn_press;
@@ -75,7 +96,7 @@ void *Pthread0()
 	X_before_btn_press.tv_usec = 0;
 	struct timeval X1;
 	struct timeval X2;
-	double Y1;
+	double Y1; //don't know why it works with doubles
 	double Y2;
 	double Y_before_btn_press;
 	
@@ -96,20 +117,21 @@ void *Pthread0()
 		Y2 = buffer[0];
 		X2 = GPS; //<-^ from main thread 
 		
-		//finding slope
+		//finding slopes and doing interpolation
 		//finding the milliseconds of the slope
 		int slope_milli = ((X2.tv_sec - X1.tv_sec) + ((int)X2.tv_usec - (int)X2.tv_usec)/1000000); 
 		
-		int X_before_btn_press_milli = ((X_before_btn_press.tv_sec - X1.tv_sec) + ((int)X2.tv_usec - (int)X2.tv_usec)/1000000);
+		int slope2_milli = ((X_before_btn_press.tv_sec - X1.tv_sec) + ((int)X2.tv_usec - (int)X2.tv_usec)/1000000);
 		
 		//finding Y_before_btn_press
-		Y_before_btn_press = (((Y2-Y1)*slope_milli) * (X_before_btn_press_milli)) + Y1;
+		Y_before_btn_press = (((Y2-Y1)*slope_milli) * (slope2_milli)) + Y1;
 		
+		//need to look into the printing/operation to fix not having decimals
 		printf("y1 is: %lf\n", Y1);
 		printf("y2 is: %lf\n", Y2);
-		printf("x1 is: %d\n", X1.tv_sec);
-		printf("x2 is: %d\n", X2.tv_sec);
-		printf("X coordinate of button press is %d\n", X_before_btn_press.tv_sec);
+		printf("x1 is: %f\n", (float)X1.tv_sec);
+		printf("x2 is: %f\n", (float)X2.tv_sec);
+		printf("X coordinate of button press is %f\n", (float)X_before_btn_press.tv_sec);
 		printf("Y coordinate of button press is %lf\n", Y_before_btn_press);
 	}
 	close(fd);
@@ -122,6 +144,29 @@ void *Pthread0()
 /*void * childThread(void *args)
 {
 
+}*/
+
+//simple pipe and print thread
+/*void Pthread1(void *args)
+{
+	//reading from pipe, use named pipe
+	//print
+	//sem_post the semaphore for printing
+	
+	int bytes;
+	int fd[2];
+	pipe(fd);
+	
+	struct timeval GPS;
+	GPS.tv_sec = 0;
+	GPS.tv_usec = 0;
+	
+	//reading in fd[0] to buffer of GPS
+	if((bytes = read(fd[0], &GPS, sizeof(struct timeval)) >= 0)
+	{
+		//print the stuff 
+	}
+	
 }*/
 
 
@@ -157,7 +202,7 @@ int main()
 	pthread_create(&thread0_EventThread, NULL, Pthread0, NULL);
 
 
-	//setting GPS struct
+	//setting GPS struct to not NULL
 	gettimeofday(&GPS, NULL);
 	//getting gps signal
 	while(1)
@@ -171,15 +216,12 @@ int main()
 		bytes = read(fd, &buffer, sizeof(unsigned char)); //reading into buffer and setting to str1
 		buffer[1] = '\0'; //just in case
 		gettimeofday(&GPS, NULL);
-		printf("Number of bytes read: %d\n", bytes);
+		//printf("Number of bytes read: %d\n", bytes);
 		if(bytes == -1)
 			printf("No GPS signal being recieved\n");
-		else
-			printf("GPS signal: %c\n", buffer[0]);
+		//else
+			//printf("GPS signal: %c\n", buffer[0]);
 
-		//printf("Time of day is: %ld.%06ld\n", GPS.tv_sec, GPS.tv_usec); //from stackoverflow for writing nicely
-
-		delay(250); //waiting period of 250 ms	
 	}	
 	
 	pthread_join(thread0_EventThread, NULL);

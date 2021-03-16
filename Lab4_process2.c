@@ -15,20 +15,56 @@
 
 #define MY_PRIORITY 51
 
+//from lab 2 document
+struct period_info {
+        struct timespec next_period;
+        long period_ns;
+};
+
 struct timeval time_of_btn; //when GPS happening
+
+static void inc_period(struct period_info *pinfo) 
+{
+        pinfo->next_period.tv_nsec += pinfo->period_ns;
+ 
+        while (pinfo->next_period.tv_nsec >= 1000000000) {
+                /* timespec nsec overflow */
+                pinfo->next_period.tv_sec++;
+                pinfo->next_period.tv_nsec -= 1000000000;
+        }
+}
+ 
+static void periodic_task_init(struct period_info *pinfo)
+{
+        /* for simplicity, hardcoding a 60ms period */
+        pinfo->period_ns = 60000000;
+ 
+        clock_gettime(CLOCK_MONOTONIC, &(pinfo->next_period));
+}
+ 
+static void wait_rest_of_period(struct period_info *pinfo)
+{
+        inc_period(pinfo);
+ 
+        /* for simplicity, ignoring possibilities of signal wakes */
+        clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &pinfo->next_period, NULL);
+}
 
 int main()
 {
-//scheduler
+	//scheduler
 	struct sched_param param;
 	param.sched_priority = MY_PRIORITY + 1; //to be most important priority 
 	int ret = sched_setscheduler(0, SCHED_FIFO, &param);
+	
+	struct period_info pinfo; //period info form lab 2
+	
 	if(ret == -1)
 	{
 		printf("Error with scheduler\n");
 	}
 	
-	//button
+	//button access
 	int fd = open("/dev/mem", O_RDWR | O_SYNC);
 	if(fd < 0)
 	{
@@ -51,18 +87,22 @@ int main()
 	fd2 = open(namedPipe2, O_RDWR);
 	int bytes;
 	
+	//mapping that reg
 	unsigned long * gpeds = mmap(NULL, getpagesize(), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0x3F200000);
 	gpeds = gpeds + (0x00000040/4); //setting offset
 	
+	periodic_task_init(&pinfo);
+	
 	while(1)
 	{
+		//ripped from lab 3
 		if(*gpeds == 0x00010000)
 		{	
 			gettimeofday(&time_of_btn, NULL);
 
 			printf("Button press happening\n");
 			
-			bytes = write(fd2, &time_of_btn, sizeof(struct timeval));
+			bytes = write(fd2, &time_of_btn, sizeof(struct timeval)); //writing time stamp to pipe
 			
 			//clear the reg like lab three
 			*gpeds = 0xFFFFFFFF;
@@ -70,8 +110,10 @@ int main()
 		}
 		
 		printf("Waiting\n");
-		//waiting until next period
-		delay(60); //60 ms
+		
+		wait_rest_of_period(&pinfo);
+		
+		
 	}
 
 }

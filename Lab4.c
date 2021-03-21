@@ -64,22 +64,91 @@ int main() {
 #include<fcntl.h>
 #include<sys/time.h>
 
-sem_t sema; //semaphore for whatever
-struct timeval GPS; //struct for time of gps
-char buffer[2]; //buffer for reading from fd
-
 //struct of shared memory for interpolation threads, don't know if works
 struct SharedMemory
 {
 	struct timeval X_before_btn_press;
-	//X_before_btn_press.tv_sec = 0;
-	//X_before_btn_press.tv_usec = 0;
 	struct timeval X1;
 	struct timeval X2;
 	double Y1; //don't know why it works with doubles
 	double Y2;
 	double Y_before_btn_press;
 };
+
+sem_t sema; //semaphore for whatever
+struct timeval GPS; //struct for time of gps
+char buffer[2]; //buffer for reading from fd
+int p[2]; //simple pipe for printing
+
+//named pipe and print thread
+void *Pthread1(void *args)
+{
+	//printf("entering print thread\n");
+
+	struct SharedMemory print_data;
+	
+	read(p[0], &print_data, sizeof(struct SharedMemory));
+	
+	printf("\n--------PRINTING INTERPOLATION---------\n");
+	
+	//printing actual values
+	printf("x1 is: %d:%d\n", print_data.X1.tv_sec, print_data.X1.tv_usec); printf("y1 is: %lf\n", print_data.Y1);
+	printf("x2 is: %d:%d\n", print_data.X2.tv_sec, print_data.X2.tv_usec); printf("y2 is: %lf\n", print_data.Y2);
+	printf("X coordinate of button press is %d:%d\n", print_data.X_before_btn_press.tv_sec, 		print_data.X_before_btn_press.tv_usec);
+	printf("Y coordinate of button press is %lf\n", print_data.Y_before_btn_press);
+	
+	sem_post(&sema);
+	
+	pthread_exit(NULL);
+}
+
+//thread for interpolating the data from Pthread0
+void * childThread(void *args)
+{
+	//printf("Entering child thread for interpolation...\n");
+	
+	struct SharedMemory data;
+	
+	//-------interpolation------
+	
+	//getting passed button press from thread0
+	data.X_before_btn_press = *(struct timeval *)args;
+	
+	data.Y1 = buffer[0];
+	data.X1 = GPS; //<-^ from main thread 
+	
+	while(data.Y1 == buffer[0])
+	{
+		//waiting for buffer to update next data point before moving on
+	} 
+	
+	data.Y2 = buffer[0];
+	data.X2 = GPS; //same as above but next point 
+	
+	//finding slopes and doing interpolation
+	//finding the milliseconds of the slope
+	int slope_milli = ((data.X2.tv_sec - data.X1.tv_sec) * 1000 + ((int)data.X2.tv_usec - (int)data.X2.tv_usec)/1000); 
+	
+	int slope2_milli = ((data.X_before_btn_press.tv_sec - data.X1.tv_sec) * 1000 + ((int)data.X2.tv_usec - (int)data.X2.tv_usec)/1000);
+	
+	//finding Y_before_btn_press
+	data.Y_before_btn_press = (((data.Y2-data.Y1)*slope_milli) * (slope2_milli)) + data.Y1;
+
+
+	//------Passing to print thread--------
+	//wait for semaphore before starting print process
+	sem_wait(&sema);
+	
+	//writing to SIMPLE pipe
+	write(p[1], &data, sizeof(struct SharedMemory)); //passing through pipe
+		
+	//passing to thread
+	pthread_t thread;
+	pthread_create(&thread, NULL, Pthread1, NULL);
+	pthread_exit(NULL);
+}
+
+
 
 //thread for receiving real time event
 //Will dynamically make child threads for button presses
@@ -88,106 +157,42 @@ void *Pthread0()
 	int fd;
 	char * namedPipe2 = "/tmp/N_pipe2";
 	fd = open(namedPipe2, O_RDONLY); //reading second named pipe to recieve real time event
-
-	int bytes2; //number of bytes read in from pipeline 2
+	struct timeval buffer_btn; //for passing to child thread
 	
-	struct timeval X_before_btn_press;
-	X_before_btn_press.tv_sec = 0;
-	X_before_btn_press.tv_usec = 0;
-	struct timeval X1;
-	struct timeval X2;
-	double Y1; //don't know why it works with doubles
-	double Y2;
-	double Y_before_btn_press;
-	
-
-	
+	//looping nad reading
 	while(1)
 	{
-		bytes2 = read(fd, &X_before_btn_press, sizeof(int));
+		read(fd, &buffer_btn, sizeof(struct timeval));
 		
-		Y1 = buffer[0];
-		X1 = GPS; //<-^ from main thread 
-		
-		while(Y1 == buffer[0])
-		{
-			//waiting for buffer to update next data point before moving on
-		} 
-		
-		Y2 = buffer[0];
-		X2 = GPS; //<-^ from main thread 
-		
-		//finding slopes and doing interpolation
-		//finding the milliseconds of the slope
-		int slope_milli = ((X2.tv_sec - X1.tv_sec) + ((int)X2.tv_usec - (int)X2.tv_usec)/1000000); 
-		
-		int slope2_milli = ((X_before_btn_press.tv_sec - X1.tv_sec) + ((int)X2.tv_usec - (int)X2.tv_usec)/1000000);
-		
-		//finding Y_before_btn_press
-		Y_before_btn_press = (((Y2-Y1)*slope_milli) * (slope2_milli)) + Y1;
-		
-		//need to look into the printing/operation to fix not having decimals
-		printf("y1 is: %lf\n", Y1);
-		printf("y2 is: %lf\n", Y2);
-		printf("x1 is: %f\n", (float)X1.tv_sec);
-		printf("x2 is: %f\n", (float)X2.tv_sec);
-		printf("X coordinate of button press is %f\n", (float)X_before_btn_press.tv_sec);
-		printf("Y coordinate of button press is %lf\n", Y_before_btn_press);
+		pthread_t thread;
+		pthread_create(&thread, NULL, childThread, &buffer_btn);
 	}
 	close(fd);
 }
 
 
 
-
-//thread for interpolating the data from Pthread0
-/*void * childThread(void *args)
-{
-
-}*/
-
-//simple pipe and print thread
-/*void Pthread1(void *args)
-{
-	//reading from pipe, use named pipe
-	//print
-	//sem_post the semaphore for printing
-	
-	int bytes;
-	int fd[2];
-	pipe(fd);
-	
-	struct timeval GPS;
-	GPS.tv_sec = 0;
-	GPS.tv_usec = 0;
-	
-	//reading in fd[0] to buffer of GPS
-	if((bytes = read(fd[0], &GPS, sizeof(struct timeval)) >= 0)
-	{
-		//print the stuff 
-	}
-	
-}*/
-
-
 int main()
 {
+	//semaphore init
+	sem_init(&sema, 0, 1);
+	
 	char * namedPipe1 = "/tmp/N_pipe1";
 	char * namedPipe2 = "/tmp/N_pipe2";
+	char * printPipe = "/tmp/print_pipe";
+	
+ 	pthread_t thread0_EventThread;
+ 	
  	int fd = open(namedPipe1, O_RDONLY);
 	
-	//struct timeval GPS; //struct for time of gps
-	int bytes; //temp value for reading in
-	
-	pthread_t thread0_EventThread;
-	
+	//making pipes if not made already
 	if(mkfifo(namedPipe1, 0777) == 0)
 	{
 		printf("N_pipe1 created\n");
 	}
 	else
 	{
-		printf("N_pipe1 alreayd created...\n");
+		printf("N_pipe1 has already been created...\n");
 	}
 	
 	if(mkfifo(namedPipe2, 0777) == 0)
@@ -199,28 +204,39 @@ int main()
 		printf("N-pipe-2 has already been created...\n");
 	}
 	
+	if(mkfifo(printPipe, 0777) == 0)
+	{
+		printf("Print pipe created\n");
+	}
+	else
+	{
+		printf("Print pipe has already been created...\n");
+	}
+	
+	if(pipe(p) < 0)
+		printf("simple pipe failed\n");
+	
+	//creating event thread
 	pthread_create(&thread0_EventThread, NULL, Pthread0, NULL);
 
 
 	//setting GPS struct to not NULL
 	gettimeofday(&GPS, NULL);
+	
 	//getting gps signal
 	while(1)
 	{
-		if(read(fd, &buffer, sizeof(unsigned char)) < 0) //error because recieving zeros I believe
-		{
-			printf("Can't read n_pipe1...\n");
-		}
 		//reading from pipeline
 		
-		bytes = read(fd, &buffer, sizeof(unsigned char)); //reading into buffer and setting to str1
+		read(fd, &buffer, sizeof(unsigned char)); //reading into buffer and setting to str1
 		buffer[1] = '\0'; //just in case
 		gettimeofday(&GPS, NULL);
-		//printf("Number of bytes read: %d\n", bytes);
-		if(bytes == -1)
+
+		//proof of concept for week one and in case of debugging
+		/*if(bytes == -1)
 			printf("No GPS signal being recieved\n");
-		//else
-			//printf("GPS signal: %c\n", buffer[0]);
+		else
+			printf("GPS signal: %c\n", buffer[0]);*/
 
 	}	
 	
